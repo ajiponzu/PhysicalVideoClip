@@ -1,6 +1,7 @@
 import cv2
 import os
 import sys
+import re
 
 
 # キーコードエイリアス
@@ -183,13 +184,15 @@ def app(base_path: str, path_ext: str):
 
 if __name__ == "__main__":
     exe_args = sys.argv
+    video_path = ''
     base_path = ''
     path_ext = '.'
-    if len(exe_args) <= 2:
-        base_path = input("input video_path (** extension be not included **): ")
-        path_ext += input("input path_extension: ")
+    if len(exe_args) <= 1:
+        video_path = input("input video_path: ")
     else:
-        base_path = exe_args[1]
-        path_ext += exe_args[2]
+        video_path = exe_args[1]
+    video_path = re.sub('"', '', repr(video_path)[1:-1]) # reprによる''を取り除く
+    base_path, path_ext = video_path.split('.')
+    path_ext = '.' + path_ext
 
     app(base_path, path_ext)

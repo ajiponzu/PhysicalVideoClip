@@ -6,7 +6,7 @@
 
 ### 実行
 
-`python frame_extractor.py 動画ファイルパス(拡張子抜き) 拡張子('.'抜き)`
+`python frame_extractor.py 動画ファイルパス`
 
 あるいは
 
@@ -14,9 +14,7 @@
 
 としてから
 
-`input video_path (** extension be not included **): movie`
-
-`input path_extension: mp4`
+`input video_path: movie.mp4`
 
 のように入力
 
