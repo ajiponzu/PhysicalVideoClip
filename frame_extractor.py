@@ -17,6 +17,7 @@ PREV_FASTER = ord('h')
 PREV_FASTEST = ord('H')
 CLIP_START = ord('a')
 CLIP_END = ord('s')
+CLIP_IMG = ord('x')
 
 
 #
@@ -69,6 +70,8 @@ def app(base_path: str, path_ext: str):
                 s:  
                     終端位置設定
                 q:  動画出力
+            フレーム画像切り抜き:
+                x:  画像切り抜き・保存
             アプリ終了:
                 Q
     """
@@ -95,6 +98,7 @@ def app(base_path: str, path_ext: str):
         # usage outputs
         print(
             "◀◀◀◀[H]\t◀◀◀[h]\t◀◀[J]\t◀[j]\t■[q]\t▶[k]\t▶▶[K]\t▶▶▶[l]\t▶▶▶▶[L]")
+        print("clip image [x]")
         print("EXIT [Q]")
         # clip_info outputs
         print(f"clip_start_pos: {clip_start_time}")
@@ -156,6 +160,8 @@ def app(base_path: str, path_ext: str):
         elif input_key == CLIP_END:
             clip_end_frame = frame_count
             clip_end_time = timestamp_str
+        elif input_key == CLIP_IMG:
+            cv2.imwrite("frame.jpg", frame)
         else:
             continue
 
@@ -191,7 +197,7 @@ if __name__ == "__main__":
         video_path = input("input video_path: ")
     else:
         video_path = exe_args[1]
-    video_path = re.sub('"', '', repr(video_path)[1:-1]) # reprによる''を取り除く
+    video_path = re.sub('"', '', repr(video_path)[1:-1])  # reprによる''を取り除く
     base_path, path_ext = video_path.split('.')
     path_ext = '.' + path_ext
 
