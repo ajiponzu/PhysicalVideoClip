@@ -2,6 +2,8 @@ import cv2
 import os
 import sys
 import re
+import ffmpeg
+from datetime import datetime, timedelta, timezone
 
 
 # キーコードエイリアス
@@ -18,6 +20,7 @@ PREV_FASTEST = ord('H')
 CLIP_START = ord('a')
 CLIP_END = ord('s')
 CLIP_IMG = ord('x')
+MODE = ord('m')
 
 
 #
@@ -72,6 +75,8 @@ def app(base_path: str, path_ext: str):
                 q:  動画出力
             フレーム画像切り抜き:
                 x:  画像切り抜き・保存
+            モード切替
+                m: 経過フレーム<->タイムスタンプ表示
             アプリ終了:
                 Q
     """
@@ -84,6 +89,14 @@ def app(base_path: str, path_ext: str):
     v_high = int(v_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = v_cap.get(cv2.CAP_PROP_FPS)
     fmt = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
+
+    video_start_time = ffmpeg.probe(
+        i_path)["streams"][0]["tags"]["creation_time"]
+    video_start_time = datetime.strptime(
+        video_start_time, '%Y-%m-%dT%H:%M:%S.%fZ')
+
+    passed_time_mode = True
+
     if max_frame_num < 0:
         print("[Oops] video path can't be recognized")
         return
@@ -103,6 +116,9 @@ def app(base_path: str, path_ext: str):
         # clip_info outputs
         print(f"clip_start_pos: {clip_start_time}")
         print(f"clip_end_pos: {clip_end_time}")
+        # video_start_time
+        print(video_start_time.strftime(
+            '[Day] %Y-%m-%d, [Time] %H:%M:%S, .%f'))
 
         # seek and read
         v_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_count)
@@ -114,7 +130,14 @@ def app(base_path: str, path_ext: str):
         # GUI
         # ウィンドウ
         view = cv2.resize(frame, (1280, 720))
-        timestamp_str = make_timestamp_string(v_cap.get(cv2.CAP_PROP_POS_MSEC))
+        timestamp_str = ""
+        if passed_time_mode:
+            timestamp_str = make_timestamp_string(
+                v_cap.get(cv2.CAP_PROP_POS_MSEC))
+        else:
+            timestamp_str = (video_start_time + timedelta(milliseconds=v_cap.get(
+                cv2.CAP_PROP_POS_MSEC))).strftime('%Y-%m-%d, %H:%M:%S, .%f')
+
         cv2.rectangle(view, [0, 0, 650, 50], [255, 255, 255], -1)
         cv2.putText(view,
                     text=timestamp_str,
@@ -162,6 +185,9 @@ def app(base_path: str, path_ext: str):
             clip_end_time = timestamp_str
         elif input_key == CLIP_IMG:
             cv2.imwrite("frame.jpg", frame)
+            cv2.imwrite("frame_timestamp.jpg", view)
+        elif input_key == MODE:
+            passed_time_mode = not passed_time_mode
         else:
             continue
 
