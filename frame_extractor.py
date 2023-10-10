@@ -3,6 +3,7 @@ import os
 import sys
 import re
 import ffmpeg
+import subprocess
 from datetime import datetime, timedelta, timezone
 
 
@@ -21,28 +22,6 @@ CLIP_START = ord('a')
 CLIP_END = ord('s')
 CLIP_IMG = ord('x')
 MODE = ord('m')
-
-
-#
-def make_timestamp_string(milliseconds: float) -> str:
-    """
-    Description:
-        ミリ秒時刻を 時間:分:秒:ミリ秒 の文字形式(str)に変換する
-    Args:
-        milliseconds: float
-            浮動小数点型のミリ秒
-    Returns:
-        "{時間}[h] : {分}[m]: {秒}[s] : {ミリ秒}[ms]" 形式の文字列
-    """
-    hour = milliseconds / (3600 * 1000)
-    hour_surplus = milliseconds % (3600 * 1000)
-    minute = hour_surplus / (60 * 1000)
-    minute_surplus = hour_surplus % (60 * 1000)
-    second = minute_surplus / 1000
-    millisecond = minute_surplus % 1000
-    sign = "" if milliseconds >= 0 else "[err]"
-
-    return f"{int(hour)}[h] : {int(minute)}[m] : {int(second)} [s] : {int(millisecond)} [ms] {sign}"
 
 
 #
@@ -90,10 +69,13 @@ def app(base_path: str, path_ext: str):
     fps = v_cap.get(cv2.CAP_PROP_FPS)
     fmt = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
 
+    with open('meta.json', 'w') as fp:
+        print(ffmpeg.probe(i_path), file=fp)
+
     video_start_time = ffmpeg.probe(
         i_path)["streams"][0]["tags"]["creation_time"]
     video_start_time = datetime.strptime(
-        video_start_time, '%Y-%m-%dT%H:%M:%S.%fZ')
+        video_start_time, '%Y-%m-%dT%H:%M:%S.%fZ') + timedelta()
 
     passed_time_mode = True
 
@@ -104,9 +86,12 @@ def app(base_path: str, path_ext: str):
     # 動画読み込みループ
     frame_count = 0  # 現在フレーム位置(読み込み前基準)
     clip_start_frame = 0  # 切り抜き開始位置
-    clip_end_frame = 0  # 切り抜き終了位置
-    clip_start_time: str = "None"
-    clip_end_time: str = "None"
+    clip_end_frame = 0  # 切り抜き終端位置
+    clip_start_time = "None"
+    clip_end_time = "None"
+    clip_start_datetime = "None"
+    clip_end_datetime = "None"
+    cur_frame_count = 0  # タイムスタンプに基づいたフレーム位置
     while True:
         # usage outputs
         print(
@@ -114,14 +99,16 @@ def app(base_path: str, path_ext: str):
         print("clip image [x]")
         print("EXIT [Q]")
         # clip_info outputs
-        print(f"clip_start_pos: {clip_start_time}")
-        print(f"clip_end_pos: {clip_end_time}")
+        print(f"clip_start_pos: {clip_start_time} - {clip_start_datetime}")
+        print(f"clip_end_pos: {clip_end_time} - {clip_end_datetime}")
         # video_start_time
         print(video_start_time.strftime(
-            '[Day] %Y-%m-%d, [Time] %H:%M:%S, .%f'))
+            'start_time: [Day] %Y-%m-%d, [Time] %H:%M:%S, .%f'))
 
         # seek and read
         v_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_count)
+        cur_frame_count = int(v_cap.get(cv2.CAP_PROP_POS_FRAMES))
+        print(f"cur_frame_count: {cur_frame_count}")
         ret, frame = v_cap.read()
         if ret is not True:
             print("frame is empty")
@@ -131,12 +118,14 @@ def app(base_path: str, path_ext: str):
         # ウィンドウ
         view = cv2.resize(frame, (1280, 720))
         timestamp_str = ""
+        cur_passed_time = timedelta(
+            milliseconds=v_cap.get(cv2.CAP_PROP_POS_MSEC))
+        cur_datetime = video_start_time + timedelta(milliseconds=v_cap.get(
+            cv2.CAP_PROP_POS_MSEC))
         if passed_time_mode:
-            timestamp_str = make_timestamp_string(
-                v_cap.get(cv2.CAP_PROP_POS_MSEC))
+            timestamp_str = str(cur_passed_time)
         else:
-            timestamp_str = (video_start_time + timedelta(milliseconds=v_cap.get(
-                cv2.CAP_PROP_POS_MSEC))).strftime('%Y-%m-%d, %H:%M:%S, .%f')
+            timestamp_str = cur_datetime.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
 
         cv2.rectangle(view, [0, 0, 650, 50], [255, 255, 255], -1)
         cv2.putText(view,
@@ -147,7 +136,7 @@ def app(base_path: str, path_ext: str):
                     color=(0, 0, 0),
                     thickness=2,
                     lineType=cv2.LINE_4)
-        cv2.imshow("frame", view)
+        cv2.imshow("view", view)
 
         # キー受付
         input_key = cv2.waitKey(0)
@@ -178,11 +167,13 @@ def app(base_path: str, path_ext: str):
         elif input_key == PREV_FASTEST:
             frame_count = max(frame_count - int(fps) * 30, 0)
         elif input_key == CLIP_START:
-            clip_start_frame = frame_count
-            clip_start_time = timestamp_str
+            clip_start_frame = cur_frame_count
+            clip_start_time = cur_passed_time
+            clip_start_datetime = cur_datetime
         elif input_key == CLIP_END:
-            clip_end_frame = frame_count
-            clip_end_time = timestamp_str
+            clip_end_frame = cur_frame_count
+            clip_end_time = cur_passed_time
+            clip_end_datetime = cur_datetime
         elif input_key == CLIP_IMG:
             cv2.imwrite("frame.jpg", frame)
             cv2.imwrite("frame_timestamp.jpg", view)
@@ -193,25 +184,34 @@ def app(base_path: str, path_ext: str):
 
     # 終了処理・クリップ動画書き出し処理
     cv2.destroyAllWindows()
-    v_writer = cv2.VideoWriter(o_path, fmt, fps, (v_wid, v_high))
     print("try to export..........................")
-
-    frame_count = clip_start_frame
-    v_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_count)
+    v_writer = cv2.VideoWriter(o_path, fmt, fps, (v_wid, v_high))
+    v_cap.set(cv2.CAP_PROP_POS_FRAMES, clip_start_frame)
     while True:
         ret, frame = v_cap.read()
         if ret is not True:
             print("frame is empty")
             break
-        elif frame_count > clip_end_frame:
+
+        cur_frame_count = int(v_cap.get(cv2.CAP_PROP_POS_FRAMES))
+        if cur_frame_count > clip_end_frame:
             break
 
         v_writer.write(frame)
-        frame_count += 1
-
     v_writer.release()
     v_cap.release()
-    print("done!")
+
+    # 撮影時刻再計算・再挿入
+    cmd = ['ffmpeg', '-i', o_path,  '-c', 'copy']
+    # 必ずタイムゾーン分引かれ, グリニッジ標準時に併せられる -> 引数は実行場所のタイムゾーンのものだと思い込む
+    clip_start_datetime -= timedelta(hours=9)
+    cmd.extend(['-metadata', f"creation_time={clip_start_datetime}"])
+    cmd.append(base_path + '_cliped.mp4')
+    ret = subprocess.run(cmd)
+    if ret.returncode == 0:
+        print("done!")
+    else:
+        print("failed")
 
 
 if __name__ == "__main__":
