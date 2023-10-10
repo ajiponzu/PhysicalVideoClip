@@ -69,9 +69,6 @@ def app(base_path: str, path_ext: str):
     fps = v_cap.get(cv2.CAP_PROP_FPS)
     fmt = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
 
-    with open('meta.json', 'w') as fp:
-        print(ffmpeg.probe(i_path), file=fp)
-
     video_start_time = ffmpeg.probe(
         i_path)["streams"][0]["tags"]["creation_time"]
     video_start_time = datetime.strptime(
@@ -185,8 +182,12 @@ def app(base_path: str, path_ext: str):
     # 終了処理・クリップ動画書き出し処理
     cv2.destroyAllWindows()
     print("try to export..........................")
+
+    timestamp_json = dict()
+
     v_writer = cv2.VideoWriter(o_path, fmt, fps, (v_wid, v_high))
     v_cap.set(cv2.CAP_PROP_POS_FRAMES, clip_start_frame)
+    new_video_frame_count = 0
     while True:
         ret, frame = v_cap.read()
         if ret is not True:
@@ -197,21 +198,22 @@ def app(base_path: str, path_ext: str):
         if cur_frame_count > clip_end_frame:
             break
 
+        cur_datetime = video_start_time + \
+            timedelta(milliseconds=v_cap.get(cv2.CAP_PROP_POS_MSEC))
+        cur_datetime += timedelta(hours=9)
+        timestamp_json[f"Frame{new_video_frame_count}"] = cur_datetime.strftime(
+            '%Y-%m-%dT%H:%M:%S.%fZ')
+
         v_writer.write(frame)
+        new_video_frame_count += 1
+
+    with open('timestamp.json', 'w') as fp:
+        print(timestamp_json, file=fp)
+
     v_writer.release()
     v_cap.release()
 
-    # 撮影時刻再計算・再挿入
-    cmd = ['ffmpeg', '-i', o_path,  '-c', 'copy']
-    # 必ずタイムゾーン分引かれ, グリニッジ標準時に併せられる -> 引数は実行場所のタイムゾーンのものだと思い込む
-    clip_start_datetime -= timedelta(hours=9)
-    cmd.extend(['-metadata', f"creation_time={clip_start_datetime}"])
-    cmd.append(base_path + '_cliped.mp4')
-    ret = subprocess.run(cmd)
-    if ret.returncode == 0:
-        print("done!")
-    else:
-        print("failed")
+    print("done!")
 
 
 if __name__ == "__main__":
