@@ -1,10 +1,11 @@
+import time
+
 import cv2
 import os
 import sys
 import re
 import ffmpeg
-import subprocess
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 
 # キーコードエイリアス
@@ -22,6 +23,53 @@ CLIP_START = ord('a')
 CLIP_END = ord('s')
 CLIP_IMG = ord('x')
 MODE = ord('m')
+
+
+#
+def skip_frame(v_cap, input_key, frame_count, max_frame_num) -> (int, int):
+    print("skipping process..................")
+    cv2.destroyAllWindows()
+
+    _frame_count = frame_count
+    _cur_frame_count = 0
+    front_flag = True
+    if (input_key == PREV or input_key == PREV_FAST
+            or input_key == PREV_FASTER or input_key == PREV_FASTEST):
+        _frame_count -= 1
+        front_flag = False
+    else:
+        _frame_count += 1
+
+    while input_key is not None and 0 <= _frame_count <= max_frame_num:
+        v_cap.set(cv2.CAP_PROP_POS_FRAMES, _frame_count)
+        _cur_frame_count = int(v_cap.get(cv2.CAP_PROP_POS_FRAMES))
+        ret, frame = v_cap.read()
+
+        if ret and _cur_frame_count == _frame_count:
+            print("next frame is found")
+            print(f"go to count[{_cur_frame_count}]")
+            return _frame_count, _cur_frame_count
+        else:
+            if front_flag:
+                _frame_count += 1
+            else:
+                _frame_count -= 1
+
+    frame_count = max_frame_num + 1
+    return _frame_count, _cur_frame_count
+
+
+#
+def visualize_time(view, timestamp_str):
+    cv2.rectangle(view, [0, 0, 650, 50], [255, 255, 255], -1)
+    cv2.putText(view,
+                text=timestamp_str,
+                org=(10, 40),
+                fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                fontScale=1.0,
+                color=(0, 0, 0),
+                thickness=2,
+                lineType=cv2.LINE_4)
 
 
 #
@@ -81,6 +129,7 @@ def app(base_path: str, path_ext: str):
         return
 
     # 動画読み込みループ
+    input_key = None
     frame_count = 0  # 現在フレーム位置(読み込み前基準)
     clip_start_frame = 0  # 切り抜き開始位置
     clip_end_frame = 0  # 切り抜き終端位置
@@ -89,6 +138,7 @@ def app(base_path: str, path_ext: str):
     clip_start_datetime = "None"
     clip_end_datetime = "None"
     cur_frame_count = 0  # タイムスタンプに基づいたフレーム位置
+    prev_frame_count = 0
     while True:
         # usage outputs
         print(
@@ -105,9 +155,16 @@ def app(base_path: str, path_ext: str):
         # seek and read
         v_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_count)
         cur_frame_count = int(v_cap.get(cv2.CAP_PROP_POS_FRAMES))
+        print(f"frame_count: {frame_count}")
         print(f"cur_frame_count: {cur_frame_count}")
         ret, frame = v_cap.read()
-        if ret is not True:
+
+        # 読み込みに失敗（精確にはフレームが欠損）している場合，またはタイムスタンプが変わらない場合
+        if not ret or frame_count != cur_frame_count:
+            frame_count, cur_frame_count = (
+                skip_frame(v_cap, input_key, frame_count, max_frame_num))
+
+        if frame_count > max_frame_num:
             print("frame is empty")
             break
 
@@ -124,15 +181,7 @@ def app(base_path: str, path_ext: str):
         else:
             timestamp_str = cur_datetime.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
 
-        cv2.rectangle(view, [0, 0, 650, 50], [255, 255, 255], -1)
-        cv2.putText(view,
-                    text=timestamp_str,
-                    org=(10, 40),
-                    fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                    fontScale=1.0,
-                    color=(0, 0, 0),
-                    thickness=2,
-                    lineType=cv2.LINE_4)
+        visualize_time(view, timestamp_str)
         cv2.imshow("view", view)
 
         # キー受付
@@ -186,15 +235,17 @@ def app(base_path: str, path_ext: str):
     timestamp_json = dict()
 
     v_writer = cv2.VideoWriter(o_path, fmt, fps, (v_wid, v_high))
-    v_cap.set(cv2.CAP_PROP_POS_FRAMES, clip_start_frame)
+    frame_count = clip_start_frame
     new_video_frame_count = 0
     while True:
-        ret, frame = v_cap.read()
-        if ret is not True:
-            print("frame is empty")
-            break
-
+        v_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_count)
         cur_frame_count = int(v_cap.get(cv2.CAP_PROP_POS_FRAMES))
+        ret, frame = v_cap.read()
+
+        if not ret or cur_frame_count != frame_count:
+            frame_count, cur_frame_count = (
+                skip_frame(v_cap, NEXT, frame_count, clip_end_frame))
+
         if cur_frame_count > clip_end_frame:
             break
 
@@ -206,17 +257,17 @@ def app(base_path: str, path_ext: str):
 
         v_writer.write(frame)
         new_video_frame_count += 1
+        frame_count += 1
 
     with open('timestamp.json', 'w') as fp:
         print(timestamp_json, file=fp)
 
     v_writer.release()
     v_cap.release()
-
     print("done!")
 
 
-if __name__ == "__main__":
+def main():
     exe_args = sys.argv
     video_path = ''
     base_path = ''
@@ -230,3 +281,7 @@ if __name__ == "__main__":
     path_ext = '.' + path_ext
 
     app(base_path, path_ext)
+
+
+if __name__ == "__main__":
+    main()
